@@ -149,6 +149,14 @@ async function initSettingsValues(){
                     }
                 } else if(v.type === 'checkbox'){
                     v.checked = gFn.apply(null, gFnOpts)
+                    if(cVal === 'AllowPrerelease' && !v.hasAttribute('data-prerelease-bound')){
+                        v.setAttribute('data-prerelease-bound', 'true')
+                        v.addEventListener('change', () => {
+                            ConfigManager.setAllowPrerelease(v.checked)
+                            ConfigManager.save()
+                            changeAllowPrerelease(v.checked)
+                        })
+                    }
                 }
             } else if(v.tagName === 'DIV'){
                 if(v.classList.contains('rangeSlider')){
@@ -233,6 +241,25 @@ function saveSettingsValues(){
 }
 
 let selectedSettingsTab = 'settingsTabAccount'
+const settingsNavDevtools = document.getElementById('settingsNavDevtools')
+const settingsDevtoolsAssumeNoJava = document.getElementById('settingsDevtoolsAssumeNoJava')
+
+function getDevtoolsState(){
+    return window.__launcherDevtools || { enabled: false, assumeNoJava: false }
+}
+
+function syncDevtoolsTabState(){
+    const state = getDevtoolsState()
+    if(settingsNavDevtools != null){
+        settingsNavDevtools.style.display = state.enabled ? '' : 'none'
+        if(!state.enabled && selectedSettingsTab === 'settingsTabDevtools'){
+            settingsNavItemListener(document.getElementById('settingsNavAccount'), false)
+        }
+    }
+    if(settingsDevtoolsAssumeNoJava != null){
+        settingsDevtoolsAssumeNoJava.checked = state.assumeNoJava
+    }
+}
 
 /**
  * Modify the settings container UI when the scroll threshold reaches
@@ -260,6 +287,23 @@ function setupSettingsTabs(){
         }
     })
 }
+
+if(settingsDevtoolsAssumeNoJava != null){
+    settingsDevtoolsAssumeNoJava.addEventListener('change', () => {
+        if(typeof window.setAssumeNoJava === 'function'){
+            window.setAssumeNoJava(settingsDevtoolsAssumeNoJava.checked)
+        } else {
+            window.__launcherDevtools = {
+                enabled: true,
+                assumeNoJava: settingsDevtoolsAssumeNoJava.checked
+            }
+            window.dispatchEvent(new CustomEvent('launcher-devtools-changed', {
+                detail: { ...window.__launcherDevtools }
+            }))
+        }
+    })
+}
+window.addEventListener('launcher-devtools-changed', syncDevtoolsTabState)
 
 /**
  * Settings nav item onclick lisener. Function is exposed so that
@@ -670,8 +714,12 @@ function populateAuthAccounts(){
 
     })
 
-    settingsCurrentMicrosoftAccounts.innerHTML = microsoftAuthAccountStr
-    settingsCurrentMojangAccounts.innerHTML = mojangAuthAccountStr
+    if(settingsCurrentMicrosoftAccounts != null){
+        settingsCurrentMicrosoftAccounts.innerHTML = microsoftAuthAccountStr
+    }
+    if(settingsCurrentMojangAccounts != null){
+        settingsCurrentMojangAccounts.innerHTML = mojangAuthAccountStr
+    }
 }
 
 /**
@@ -1453,7 +1501,7 @@ function populateAboutVersionInformation(){
  */
 function populateReleaseNotes(){
     $.ajax({
-        url: 'https://github.com/dscalzi/HeliosLauncher/releases.atom',
+        url: 'https://github.com/ddoiy13/ddoiyLauncher2/releases.atom',
         success: (data) => {
             const version = 'v' + remote.app.getVersion()
             const entries = $(data).find('entry')
@@ -1574,6 +1622,7 @@ async function prepareSettings(first = false) {
         await prepareModsTab()
     }
     await initSettingsValues()
+    syncDevtoolsTabState()
     prepareAccountsTab()
     await prepareJavaTab()
     prepareAboutTab()

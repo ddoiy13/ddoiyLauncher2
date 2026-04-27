@@ -1,6 +1,6 @@
-appId: 'helioslauncher'
-productName: 'Helios Launcher'
-artifactName: '${productName}-setup-${version}.${ext}'
+appId: 'ddoiyLauncher2'
+productName: 'ddoiy Launcher 2'
+artifactName: 'ddoiy-Launcher-2-setup-${version}.${ext}'
 
 copyright: 'Copyright © 2018-2026 Daniel Scalzi'
 

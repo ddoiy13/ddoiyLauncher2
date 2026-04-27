@@ -14,6 +14,7 @@ const Lang                           = require('./assets/js/langloader')
 
 const loggerUICore             = LoggerUtil.getLogger('UICore')
 const loggerAutoUpdater        = LoggerUtil.getLogger('AutoUpdater')
+const UPDATE_CHECK_TIMEOUT_MS  = 30000
 
 // Log deprecation and process warnings.
 process.traceProcessWarnings = true
@@ -35,26 +36,82 @@ remote.getCurrentWebContents().on('devtools-opened', () => {
 webFrame.setZoomLevel(0)
 webFrame.setVisualZoomLevelLimits(1, 1)
 
+if(window.__launcherDevtools == null){
+    window.__launcherDevtools = {
+        enabled: false,
+        assumeNoJava: false
+    }
+}
+
+function emitDevtoolsStateChanged(){
+    window.dispatchEvent(new CustomEvent('launcher-devtools-changed', {
+        detail: { ...window.__launcherDevtools }
+    }))
+}
+
+window.enableDevtools = function (){
+    window.__launcherDevtools.enabled = true
+    emitDevtoolsStateChanged()
+    loggerUICore.info('Developer tab enabled.')
+    return { ...window.__launcherDevtools }
+}
+
+window.disableDevtools = function (){
+    window.__launcherDevtools.enabled = false
+    window.__launcherDevtools.assumeNoJava = false
+    emitDevtoolsStateChanged()
+    loggerUICore.info('Developer tab disabled.')
+    return { ...window.__launcherDevtools }
+}
+
+window.setAssumeNoJava = function (val){
+    window.__launcherDevtools.assumeNoJava = Boolean(val)
+    emitDevtoolsStateChanged()
+    loggerUICore.info('Developer Java mock changed.', window.__launcherDevtools.assumeNoJava)
+    return { ...window.__launcherDevtools }
+}
+
+window.getDevtoolsState = function (){
+    return { ...window.__launcherDevtools }
+}
+
 // Initialize auto updates in production environments.
 let updateCheckListener
+let updateCheckTimeout
+
+function clearUpdateCheckTimeout(){
+    if(updateCheckTimeout != null){
+        clearTimeout(updateCheckTimeout)
+        updateCheckTimeout = null
+    }
+}
 if(!isDev){
     ipcRenderer.on('autoUpdateNotification', (event, arg, info) => {
         switch(arg){
             case 'checking-for-update':
                 loggerAutoUpdater.info('Checking for update..')
                 settingsUpdateButtonStatus(Lang.queryJS('uicore.autoUpdate.checkingForUpdateButton'), true)
+                clearUpdateCheckTimeout()
+                // Recover button state when updater never emits a completion event.
+                updateCheckTimeout = setTimeout(() => {
+                    loggerAutoUpdater.warn('Update check timeout reached, resetting UI state.')
+                    settingsUpdateButtonStatus(Lang.queryJS('uicore.autoUpdate.checkForUpdatesButton'))
+                    updateCheckTimeout = null
+                }, UPDATE_CHECK_TIMEOUT_MS)
                 break
             case 'update-available':
+                clearUpdateCheckTimeout()
                 loggerAutoUpdater.info('New update available', info.version)
                 
                 if(process.platform === 'darwin'){
-                    info.darwindownload = `https://github.com/dscalzi/HeliosLauncher/releases/download/v${info.version}/Helios-Launcher-setup-${info.version}${process.arch === 'arm64' ? '-arm64' : '-x64'}.dmg`
+                    info.darwindownload = `https://github.com/ddoiy13/ddoiyLauncher2/releases/download/v${info.version}/ddoiy-Launcher-2-setup-${info.version}${process.arch === 'arm64' ? '-arm64' : '-x64'}.dmg`
                     showUpdateUI(info)
                 }
                 
                 populateSettingsUpdateInformation(info)
                 break
             case 'update-downloaded':
+                clearUpdateCheckTimeout()
                 loggerAutoUpdater.info('Update ' + info.version + ' ready to be installed.')
                 settingsUpdateButtonStatus(Lang.queryJS('uicore.autoUpdate.installNowButton'), false, () => {
                     if(!isDev){
@@ -64,6 +121,7 @@ if(!isDev){
                 showUpdateUI(info)
                 break
             case 'update-not-available':
+                clearUpdateCheckTimeout()
                 loggerAutoUpdater.info('No new update found.')
                 settingsUpdateButtonStatus(Lang.queryJS('uicore.autoUpdate.checkForUpdatesButton'))
                 break
@@ -74,6 +132,8 @@ if(!isDev){
                 ipcRenderer.send('autoUpdateAction', 'checkForUpdate')
                 break
             case 'realerror':
+                clearUpdateCheckTimeout()
+                settingsUpdateButtonStatus(Lang.queryJS('uicore.autoUpdate.checkForUpdatesButton'))
                 if(info != null && info.code != null){
                     if(info.code === 'ERR_UPDATER_INVALID_RELEASE_FEED'){
                         loggerAutoUpdater.info('No suitable releases found.')

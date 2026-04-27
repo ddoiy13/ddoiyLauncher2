@@ -120,6 +120,83 @@ class ProcessBuilder {
         return process.platform === 'win32' ? ';' : ':'
     }
 
+    static parseRamToMB(value){
+        if(typeof value !== 'string'){
+            return null
+        }
+        const trimmed = value.trim().toUpperCase()
+        if(trimmed.endsWith('G')){
+            const n = Number.parseFloat(trimmed.slice(0, -1))
+            return Number.isFinite(n) ? Math.trunc(n * 1024) : null
+        }
+        if(trimmed.endsWith('M')){
+            const n = Number.parseFloat(trimmed.slice(0, -1))
+            return Number.isFinite(n) ? Math.trunc(n) : null
+        }
+        return null
+    }
+
+    static mbToRamString(mb){
+        return `${Math.max(512, Math.trunc(mb))}M`
+    }
+
+    resolveSafeRamArgs(){
+        const serverId = this.server.rawServer.id
+        const configuredMin = ConfigManager.getMinRAM(serverId)
+        const configuredMax = ConfigManager.getMaxRAM(serverId)
+        const parsedMin = ProcessBuilder.parseRamToMB(configuredMin)
+        const parsedMax = ProcessBuilder.parseRamToMB(configuredMax)
+
+        let minMb = parsedMin ?? 1024
+        let maxMb = parsedMax ?? 2048
+
+        if(minMb > maxMb){
+            minMb = maxMb
+        }
+
+        return {
+            min: ProcessBuilder.mbToRamString(minMb),
+            max: ProcessBuilder.mbToRamString(maxMb)
+        }
+    }
+
+    resolveSafeJvmOptions(){
+        const serverId = this.server.rawServer.id
+        const suggestedMajor = this.server.effectiveJavaOptions?.suggestedMajor ?? 8
+        const opts = ConfigManager.getJVMOptions(serverId) || []
+
+        return opts.filter((opt) => {
+            if(typeof opt !== 'string'){
+                return false
+            }
+            // Prevent duplicate or conflicting heap flags from user options.
+            if(opt.startsWith('-Xmx') || opt.startsWith('-Xms')){
+                return false
+            }
+            // Legacy CMS flags are invalid on modern Java.
+            if(suggestedMajor >= 9 && (opt === '-XX:+UseConcMarkSweepGC' || opt === '-XX:+CMSIncrementalMode')){
+                return false
+            }
+            return true
+        })
+    }
+
+    stripUnsupportedJvmArgs(args){
+        const blockedPrefixes = [
+            '--sun-misc-unsafe-memory-access='
+        ]
+        const filtered = args.filter((arg) => {
+            if(typeof arg !== 'string'){
+                return true
+            }
+            return !blockedPrefixes.some((prefix) => arg.startsWith(prefix))
+        })
+        if(filtered.length !== args.length){
+            logger.warn('Removed unsupported JVM arguments for current runtime.', args.filter((arg) => !filtered.includes(arg)))
+        }
+        return filtered
+    }
+
     /**
      * Determine if an optional mod is enabled from its configuration value. If the
      * configuration value is null, the required object will be used to
@@ -365,6 +442,8 @@ class ProcessBuilder {
     _constructJVMArguments112(mods, tempNativePath){
 
         let args = []
+        const safeRam = this.resolveSafeRamArgs()
+        const safeJvmOptions = this.resolveSafeJvmOptions()
 
         // Classpath Argument
         args.push('-cp')
@@ -372,12 +451,12 @@ class ProcessBuilder {
 
         // Java Arguments
         if(process.platform === 'darwin'){
-            args.push('-Xdock:name=HeliosLauncher')
+            args.push('-Xdock:name=ddoiyLauncher2')
             args.push('-Xdock:icon=' + path.join(__dirname, '..', 'images', 'minecraft.icns'))
         }
-        args.push('-Xmx' + ConfigManager.getMaxRAM(this.server.rawServer.id))
-        args.push('-Xms' + ConfigManager.getMinRAM(this.server.rawServer.id))
-        args = args.concat(ConfigManager.getJVMOptions(this.server.rawServer.id))
+        args.push('-Xmx' + safeRam.max)
+        args.push('-Xms' + safeRam.min)
+        args = args.concat(safeJvmOptions)
         args.push('-Djava.library.path=' + tempNativePath)
 
         // Main Java Class
@@ -386,7 +465,7 @@ class ProcessBuilder {
         // Forge Arguments
         args = args.concat(this._resolveForgeArgs())
 
-        return args
+        return this.stripUnsupportedJvmArgs(args)
     }
 
     /**
@@ -402,6 +481,8 @@ class ProcessBuilder {
     _constructJVMArguments113(mods, tempNativePath){
 
         const argDiscovery = /\${*(.*)}/
+        const safeRam = this.resolveSafeRamArgs()
+        const safeJvmOptions = this.resolveSafeJvmOptions()
 
         // JVM Arguments First
         let args = this.vanillaManifest.arguments.jvm
@@ -423,12 +504,12 @@ class ProcessBuilder {
 
         // Java Arguments
         if(process.platform === 'darwin'){
-            args.push('-Xdock:name=HeliosLauncher')
+            args.push('-Xdock:name=ddoiyLauncher2')
             args.push('-Xdock:icon=' + path.join(__dirname, '..', 'images', 'minecraft.icns'))
         }
-        args.push('-Xmx' + ConfigManager.getMaxRAM(this.server.rawServer.id))
-        args.push('-Xms' + ConfigManager.getMinRAM(this.server.rawServer.id))
-        args = args.concat(ConfigManager.getJVMOptions(this.server.rawServer.id))
+        args.push('-Xmx' + safeRam.max)
+        args.push('-Xms' + safeRam.min)
+        args = args.concat(safeJvmOptions)
 
         // Main Java Class
         args.push(this.modManifest.mainClass)
@@ -553,7 +634,7 @@ class ProcessBuilder {
             return arg != null
         })
 
-        return args
+        return this.stripUnsupportedJvmArgs(args)
     }
 
     /**

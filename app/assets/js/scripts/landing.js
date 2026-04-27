@@ -42,6 +42,46 @@ const user_text               = document.getElementById('user_text')
 
 const loggerLanding = LoggerUtil.getLogger('Landing')
 
+function resolveJavaMajor(details){
+    if(details == null){
+        return null
+    }
+    if(typeof details.major === 'number'){
+        return details.major
+    }
+    if(typeof details.semverStr === 'string'){
+        const first = Number.parseInt(details.semverStr.split('.')[0], 10)
+        if(Number.isInteger(first)){
+            return first
+        }
+    }
+    return null
+}
+
+function sanitizeJvmOptionsForJavaMajor(serverId, javaMajor){
+    if(javaMajor == null){
+        return
+    }
+
+    const current = ConfigManager.getJVMOptions(serverId) || []
+    let filtered = current
+
+    // Legacy CMS flags are removed in modern JDKs and cause JVM startup failures.
+    if(javaMajor >= 9){
+        const legacyIncompatible = new Set([
+            '-XX:+UseConcMarkSweepGC',
+            '-XX:+CMSIncrementalMode'
+        ])
+        filtered = current.filter((opt) => !legacyIncompatible.has(opt))
+    }
+
+    if(filtered.length !== current.length){
+        ConfigManager.setJVMOptions(serverId, filtered)
+        ConfigManager.save()
+        loggerLanding.warn('Removed incompatible JVM options for detected Java version.', { javaMajor, removed: current.filter((opt) => !filtered.includes(opt)) })
+    }
+}
+
 /* Launch Progress Wrapper Functions */
 
 /**
@@ -104,7 +144,12 @@ document.getElementById('launch_button').addEventListener('click', async e => {
     try {
         const server = (await DistroAPI.getDistribution()).getServerById(ConfigManager.getSelectedServer())
         const jExe = ConfigManager.getJavaExecutable(ConfigManager.getSelectedServer())
-        if(jExe == null){
+        const devtoolsState = window.__launcherDevtools || { enabled: false, assumeNoJava: false }
+        const assumeNoJava = devtoolsState.enabled && devtoolsState.assumeNoJava
+        if(jExe == null || assumeNoJava){
+            if(assumeNoJava){
+                loggerLanding.info('Devtools mode active. Assuming Java is not installed.')
+            }
             await asyncSystemScan(server.effectiveJavaOptions)
         } else {
 
@@ -115,6 +160,7 @@ document.getElementById('launch_button').addEventListener('click', async e => {
             const details = await validateSelectedJvm(ensureJavaDirIsRoot(jExe), server.effectiveJavaOptions.supported)
             if(details != null){
                 loggerLanding.info('Jvm Details', details)
+                sanitizeJvmOptionsForJavaMajor(ConfigManager.getSelectedServer(), resolveJavaMajor(details))
                 await dlAsync()
 
             } else {
@@ -304,10 +350,14 @@ async function asyncSystemScan(effectiveJavaOptions, launchAfter = true){
     toggleLaunchArea(true)
     setLaunchPercentage(0, 100)
 
-    const jvmDetails = await discoverBestJvmInstallation(
-        ConfigManager.getDataDirectory(),
-        effectiveJavaOptions.supported
-    )
+    const devtoolsState = window.__launcherDevtools || { enabled: false, assumeNoJava: false }
+    const assumeNoJava = devtoolsState.enabled && devtoolsState.assumeNoJava
+    const jvmDetails = assumeNoJava
+        ? null
+        : await discoverBestJvmInstallation(
+            ConfigManager.getDataDirectory(),
+            effectiveJavaOptions.supported
+        )
 
     if(jvmDetails == null) {
         // If the result is null, no valid Java installation was found.
@@ -966,10 +1016,20 @@ async function loadNews(){
 
     const promise = new Promise((resolve, reject) => {
         
-        const newsFeed = distroData.rawDistribution.rss
-        const newsHost = new URL(newsFeed).origin + '/'
+        const newsFeed = String(distroData.rawDistribution.rss).trim()
+        let newsURL
+        try {
+            newsURL = new URL(newsFeed)
+        } catch (err) {
+            loggerLanding.error('Invalid RSS URL in distribution index.', newsFeed, err)
+            resolve({
+                articles: null
+            })
+            return
+        }
+        const newsHost = newsURL.origin + '/'
         $.ajax({
-            url: newsFeed,
+            url: newsURL.toString(),
             success: (data) => {
                 const items = $(data).find('item')
                 const articles = []
