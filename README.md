@@ -16,13 +16,9 @@ For instructions on setting up Microsoft Authentication, see https://github.com/
 
 ## Resources
 
-* [Wiki][wiki]
+* [Helios Launcher Wiki][wiki]
 * [Nebula (Create Distribution.json)][nebula]
 * [v2 Rewrite Branch (Inactive)][v2branch]
-
-The best way to contact the developers is on Discord.
-
-[![discord](https://discordapp.com/api/guilds/211524927831015424/embed.png?style=banner3)][discord]
 
 ---
 
