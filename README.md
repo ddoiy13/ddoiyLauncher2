@@ -10,7 +10,7 @@
 
 Please give credit to the original author and provide a link to the original source. This is free software, please do at least this much.
 
-For instructions on setting up Microsoft Authentication, see https://github.com/dscalzi/HeliosLauncher/blob/master/docs/MicrosoftAuth.md.
+Original Source: https://github.com/dscalzi/HeliosLauncher
 
 ---
 
