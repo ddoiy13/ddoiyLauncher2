@@ -13,6 +13,8 @@ const { pathToFileURL }                 = require('url')
 const { AZURE_CLIENT_ID, MSFT_OPCODE, MSFT_REPLY_TYPE, MSFT_ERROR, SHELL_OPCODE } = require('./app/assets/js/ipcconstants')
 const LangLoader                        = require('./app/assets/js/langloader')
 
+let downloadedUpdateInfo = null
+
 // Setup Lang
 LangLoader.setupLanguage()
 
@@ -37,6 +39,7 @@ function initAutoUpdater(event, data) {
         event.sender.send('autoUpdateNotification', 'update-available', info)
     })
     autoUpdater.on('update-downloaded', (info) => {
+        downloadedUpdateInfo = info
         event.sender.send('autoUpdateNotification', 'update-downloaded', info)
     })
     autoUpdater.on('update-not-available', (info) => {
@@ -56,13 +59,31 @@ ipcMain.on('autoUpdateAction', (event, arg, data) => {
         case 'initAutoUpdater':
             console.log('Initializing auto updater.')
             initAutoUpdater(event, data)
+            if(downloadedUpdateInfo != null){
+                event.sender.send('autoUpdateNotification', 'update-downloaded', downloadedUpdateInfo)
+            }
             event.sender.send('autoUpdateNotification', 'ready')
             break
         case 'checkForUpdate':
-            autoUpdater.checkForUpdates()
-                .catch(err => {
-                    event.sender.send('autoUpdateNotification', 'realerror', err)
-                })
+            if(autoUpdater.allowPrerelease){
+                autoUpdater.allowPrerelease = false
+                autoUpdater.checkForUpdates()
+                    .catch(err => {
+                        event.sender.send('autoUpdateNotification', 'realerror', err)
+                    })
+                setTimeout(() => {
+                    autoUpdater.allowPrerelease = true
+                    autoUpdater.checkForUpdates()
+                        .catch(err => {
+                            event.sender.send('autoUpdateNotification', 'realerror', err)
+                        })
+                }, 2000)
+            } else {
+                autoUpdater.checkForUpdates()
+                    .catch(err => {
+                        event.sender.send('autoUpdateNotification', 'realerror', err)
+                    })
+            }
             break
         case 'allowPrereleaseChange':
             if(!data){
