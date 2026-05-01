@@ -28,8 +28,9 @@ function initAutoUpdater(event, data) {
         // autoUpdater.allowPrerelease = true
     }
     
+    autoUpdater.autoInstallOnAppQuit = false
+
     if(isDev){
-        autoUpdater.autoInstallOnAppQuit = false
         autoUpdater.updateConfigPath = path.join(__dirname, 'dev-app-update.yml')
     }
     if(process.platform === 'darwin'){
